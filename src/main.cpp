@@ -5,14 +5,14 @@
 #include "Module_Stepmotor.h"
 #include <SCServo.h>
 
-SCSCL st;
-
+SCSCL sc;
+SMS_STS st;
 // change to CORE2 if using Core2
 #define CORE_2
 
 #ifdef CORE_S3
-    static const int X_STEP_PIN = 18;
-    static const int X_DIR_PIN = 17;
+    //static const int X_STEP_PIN = 18;  // used by UART2 on Port.C
+    //static const int X_DIR_PIN = 17;   // used by UART2 on Port.C
     static const int Y_STEP_PIN = 6;
     static const int Y_DIR_PIN = 7;
     static const int Z_STEP_PIN = 13;
@@ -21,15 +21,15 @@ SCSCL st;
     static const int SDA_PIN = 12;
     static const int SCL_PIN = 11;
 
-    static const int SERVO_UART_TX = 17;  // G17 (TX)
-    static const int SERVO_UART_RX = 18;  // G18 (RX)
+    static const int SERVO_UART_TX = 18;  // G17 (TX)
+    static const int SERVO_UART_RX = 17;  // G18 (RX)
 
     static const int PB_0 = 9; 
     static const int PB_1 = 8;
 
 #elif defined CORE_2
-    //static const int X_STEP_PIN = 13;
-    //static const int X_DIR_PIN = 14;
+    //static const int X_STEP_PIN = 13;  // used by UART2 on Port.C
+    //static const int X_DIR_PIN = 14;   // used by UART2 on Port.C
     static const int Y_STEP_PIN = 27;
     static const int Y_DIR_PIN = 19;
     static const int Z_STEP_PIN = 2; // Not sure about this one
@@ -124,11 +124,12 @@ void setup() {
 
     //SerialServo.begin(1000000, SERIAL_8N1, SERVO_UART_RX, SERVO_UART_TX);
     SerialServo.begin(1000000, SERIAL_8N1, SERVO_UART_TX, SERVO_UART_RX);
+    //sc.pSerial = &SerialServo;
     st.pSerial = &SerialServo;
-    //while (!SerialServo) {
-    //  ; // Wait for serial port if needed.
-    //  
-    //}
+    while (!SerialServo) {
+     ; // Wait for serial port if needed.
+     
+    }
     Serial.println("M5Stack CoreS3 - SerialServo initialized.");
 
     Wire.begin(SDA_PIN, SCL_PIN, 400000UL);
@@ -137,7 +138,8 @@ void setup() {
     driver.resetMotor(0, 0);
     driver.resetMotor(1, 0);
     driver.resetMotor(2, 0);
-    driver.enableMotor(1);
+    
+    driver.enableMotor(1); // we are using Y axis only
 
     // // PWM, sets the speed of the stepper motor, adjust accordingly
     // ledcSetup(0, 800, 8);
@@ -151,11 +153,11 @@ void setup() {
 
     // // XYZ dir
     // Core cannot use dirX together with external serial servos
-    #ifdef CORE_S3
-      pinMode(X_DIR_PIN, OUTPUT);
-      digitalWrite(X_DIR_PIN, 1);
-      pinMode(X_STEP_PIN, OUTPUT);
-    #endif
+    // #ifdef CORE_S3
+    //   pinMode(X_DIR_PIN, OUTPUT);
+    //   digitalWrite(X_DIR_PIN, 1);
+    //   pinMode(X_STEP_PIN, OUTPUT);
+    // #endif
     
     pinMode(Y_DIR_PIN, OUTPUT);
     digitalWrite(Y_DIR_PIN, 1);
@@ -277,9 +279,16 @@ void loop() {
   //moveStepper(300);
   moveStepperDynamic(100, 400, 1800, 50);
   //sendServoCommand2(1, 500, 20);
-  st.WritePos(254, 1000, 1500, 50);
-  delay(2000);  
   
+  
+  //uint8_t reslt = sc.WritePos(1, 1000, 1500, 50);
+  //Serial.print("servo result:");
+  //Serial.println(reslt);
+  st.WritePosEx(1, 0, 3400, 200); 
+  delay(1000); 
+  st.WritePosEx(1, 1500, 3400, 100);
+  delay(1000); 
+  st.WritePosEx(1, 0, 3400, 200);
   //SerialServo.println("test test test");
   
   //st.WritePosEx(254, 1000, 1500, 50);
@@ -288,11 +297,14 @@ void loop() {
   Serial.println("Moving X axis 300 steps to the left.");
   //moveStepper(-300);
   moveStepperDynamic(-100, 400, 1800, 50);
-  st.WritePos(254, 100, 1500, 50);
+  
+  //sc.WritePos(1, 100, 1500, 50);
+  ////st.WritePosEx(1, 2000, 1500, 50);
   //sendServoCommand2(1, 100, 20);
+  //st.WritePosEx(1, 2000, 3400, 100);
   delay(2000);
 
   //sendServoCommand(254, 100, 1000); 
-  // //st.WritePosEx(254, 100, 1500, 50);
+ 
   //delay(200);
 }
