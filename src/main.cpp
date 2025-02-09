@@ -284,11 +284,17 @@ void loop() {
   //uint8_t reslt = sc.WritePos(1, 1000, 1500, 50);
   //Serial.print("servo result:");
   //Serial.println(reslt);
-  st.WritePosEx(1, 0, 3400, 200); 
+  st.WritePosEx(1, 100, 4095, 255); 
   delay(1000); 
-  st.WritePosEx(1, 1500, 3400, 100);
-  delay(1000); 
-  st.WritePosEx(1, 0, 3400, 200);
+  st.WritePosEx(1, 1300, 4095, 255);
+  delay(1500); 
+  st.WritePosEx(1, 1330, 100, 10);
+  delay(500);
+  st.WritePosEx(1, 1360, 100, 10);
+  delay(500);
+  st.WritePosEx(1, 1390, 100, 10);
+  delay(500);
+  st.WritePosEx(1,100, 4095, 255);
   //SerialServo.println("test test test");
   
   //st.WritePosEx(254, 1000, 1500, 50);
