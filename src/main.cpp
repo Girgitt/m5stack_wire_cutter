@@ -5,6 +5,11 @@
 #include "Module_Stepmotor.h"
 #include <SCServo.h>
 
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+#include "config.h"
+
 SCSCL sc;
 SMS_STS st;
 // change to CORE2 if using Core2
@@ -45,11 +50,174 @@ SMS_STS st;
     static const int PB_1 = 36; 
 #endif
 
+
+// WiFi credentials
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
+
+// MQTT broker details
+const char* mqtt_client_id = MQTT_CLIENT_ID; // Unique ID
+const char* mqtt_server = MQTT_SERVER;
+const int mqtt_port = MQTT_PORT;
+const char* mqtt_username = MQTT_USERNAME;  // Optional, if required
+const char* mqtt_password = MQTT_PASSWORD;  // Optional, if required
+static unsigned long lastPublish = 0;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// MQTT topic definitions
+String global_status_topic = "cutters/" + String(mqtt_client_id) + "/status";
+String servo_state_topic = "cutters/" + String(mqtt_client_id) + "/servo/0";
+String servo_command_topic = "cutters/" + String(mqtt_client_id) + "/servo/0/command";
+String stepper_state_topic = "cutters/" + String(mqtt_client_id) + "/stepper/0";
+String stepper_command_topic = "cutters/" + String(mqtt_client_id) + "/stepper/0/command";
+
+int servo_pos_init = 200;      //adjust to your blade length so the blade does not block wire in open posiotion
+int servo_pos_cut_1 = 1120;    //adjust to your blade length so the close position does not destroy servo or its mounting
+int servo_pos_retract_1 = servo_pos_cut_1 - 300;
+int servo_pos_cut_2 = servo_pos_cut_1;
+
+int servo_delay_ms_long = 600;  // give loong enouth time for the cut travel and initial movement
+int servo_delay_ms_short = 300; // give loong enouth time for the first cut and retraction move
+
+int servo_speed_move = 0;
+int servo_accel_move = 0;
+
+int servo_speed_cut = 1000;
+int servo_accel_cut = 0;
+
+
+
 static Module_Stepmotor driver;
 
 HardwareSerial SerialServo(2);
 
 const unsigned int stepPulseDelayMicroseconds = 600; // 500 µs high, 500 µs low
+
+
+String current_state = "IDLE"; // IDLE, FEEDING, CUTTING
+String requested_state = "IDLE";
+int cutter_state_report_timeout_ms = 1000;
+int cutter_state_report_age_ms = 0;
+
+int requested_length_mm = 0;
+
+// Function to connect to WiFi
+void setup_wifi() {
+  delay(10);
+  // Connect to WiFi
+  Serial.println();
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.println(" connected!");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+
+void publishServoState(){
+  //String state = relayState ? "on" : "off";
+  //client.publish(servo_state_topic.c_str(), state.c_str(), 1);
+}
+
+void publishStepperState(){
+  //String state = relayState ? "on" : "off";
+  //client.publish(servo_state_topic.c_str(), state.c_str(), 1);
+}
+
+void publishGlobalSatus(){
+  String status_node = global_status_topic + "/state";
+  client.publish(status_node.c_str(), current_state.c_str(), 1);
+}
+
+// Callback function to handle received messages
+void callback(char* topic, byte* payload, unsigned int length) {
+  // Convert payload to string
+  String message = "";
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  Serial.println("handling command message: "+message);
+  // Check if the received message is for servo
+  if (String(topic) == String(servo_command_topic)) {
+    
+    Serial.println("handling servo command: "+message);
+    if (message == "cut") {
+      if (current_state == "IDLE"){
+        requested_state = "CUTTING";
+      }
+      else{
+        Serial.println("ERROR: requested qutting while state is not IDLE");
+      }
+
+    }
+  }
+  else if (String(topic) == String(stepper_command_topic)) {
+    Serial.println("handling stepper command: "+message);
+
+    // we are expecting something like "feed:300"
+
+    int separatorIndex = message.indexOf(":");
+    
+    // If ":" is found, proceed with splitting
+    if (separatorIndex != -1) {
+        String command = message.substring(0, separatorIndex);  // Extract "feed"
+        String valueStr = message.substring(separatorIndex + 1); // Extract "length"
+        
+        // Convert valueStr to integer
+        int value = valueStr.toInt();
+        
+        // Validate input
+        if (command == "feed" && value > 0 && value < 1000) {
+            Serial.println("Valid command received: " + command);
+            Serial.println("Valid value received: " + String(value));
+            
+            requested_length_mm = value;
+            requested_state = "FEEDING";
+
+
+        } else {
+            Serial.println("Invalid command or value out of range.");
+        }
+    } else {
+        Serial.println("Invalid format: ':' missing.");
+    }
+
+
+  }
+
+}
+
+// Reconnect to MQTT server
+void reconnect() {
+  // Loop until we are connected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    
+    // Attempt to connect
+    //if (client.connect("M5StackClient", mqtt_username, mqtt_password)) {
+    if (client.connect(mqtt_client_id, mqtt_username, mqtt_password)) {
+      Serial.println("connected to mqtt broker");
+      
+      // Subscribe to the command topic
+      client.subscribe(servo_command_topic.c_str()); // Convert String to const char* using c_str()
+      client.subscribe(stepper_command_topic.c_str()); // Convert String to const char* using c_str()
+
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
 
 
 void sendServoCommand(uint8_t id, uint16_t position, uint16_t time) {
@@ -110,6 +278,27 @@ void sendServoCommand2(uint8_t id, uint16_t position, uint16_t speed) {
 
     SerialServo.write(cmd, sizeof(cmd));
     SerialServo.flush();
+}
+
+void move_servo_to_initial_position(){
+  st.WritePosEx(1, servo_pos_init, servo_speed_move, servo_accel_move);
+  delay(800);
+}
+
+void make_cut_sequence(){
+  st.WritePosEx(1, servo_pos_cut_1, servo_speed_move, servo_accel_move);
+  delay(servo_delay_ms_long);
+  
+  st.WritePosEx(1, servo_pos_cut_1, servo_speed_cut, servo_accel_cut);
+  delay(servo_delay_ms_short);
+  
+  st.WritePosEx(1, servo_pos_retract_1, servo_speed_move, servo_accel_move);
+  delay(servo_delay_ms_short);
+  
+  st.WritePosEx(1, servo_pos_cut_2, servo_speed_cut, servo_accel_cut);
+  delay(servo_delay_ms_long);
+  
+  move_servo_to_initial_position();
 }
 
 
@@ -174,6 +363,24 @@ void setup() {
     digitalWrite(PB_1, 1);
 
     M5.Lcd.printf("Started");
+    // Connect to WiFi
+    setup_wifi();
+    M5.Lcd.printf("Wifi");
+    
+    // Set up MQTT client
+    client.setServer(mqtt_server, mqtt_port);
+    client.setCallback(callback);
+    
+    // Connect to MQTT server
+    reconnect();
+    if (client.connected()){
+      M5.Lcd.printf("MQTT");
+      publishGlobalSatus();
+    }
+    
+    client.setKeepAlive(60);
+
+    move_servo_to_initial_position();
 }
 
 void moveStepper(int steps) {
@@ -264,9 +471,7 @@ void moveStepperDynamic(int steps, unsigned int minDelay, unsigned int maxDelay,
   Serial.println("  < move");
 }
 
-
-
-void loop() {
+void test_moves(){
     // digitalWrite(X_DIR_PIN, 0);
     // delay(1000);
     
@@ -328,9 +533,37 @@ void loop() {
   ////st.WritePosEx(1, 2000, 1500, 50);
   //sendServoCommand2(1, 100, 20);
   //st.WritePosEx(1, 2000, 3400, 100);
-  delay(2000);
+}
 
-  //sendServoCommand(254, 100, 1000); 
- 
-  //delay(200);
+
+
+void loop(){
+
+  if (current_state != requested_state){
+    Serial.println("requested new state: "+requested_state);
+    
+    if (requested_state == "FEEDING"){
+      
+      current_state = "FEEDING";
+      // 800 steps == 127mm
+      moveStepperDynamic(int(float(requested_length_mm) / (127.0 / 800.0)), 600, 1800, 50);
+
+    }
+    else if (requested_state == "CUTTING"){
+      current_state = "CUTTING";
+      make_cut_sequence();
+    }
+    
+    current_state = "IDLE";
+    requested_state = "IDLE";
+  }
+
+  if (client.connected()){
+    client.loop(); // Process incoming messages
+  }
+  else{
+    reconnect();
+  }
+
+  delay(20);
 }
