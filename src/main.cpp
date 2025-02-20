@@ -102,6 +102,9 @@ int cutter_state_report_timeout_ms = 1000;
 int cutter_state_report_age_ms = 0;
 
 int requested_length_mm = 0;
+int requested_wires_count = 0;
+bool buttonPressed = false;
+
 
 // Function to connect to WiFi
 void setup_wifi() {
@@ -304,6 +307,7 @@ void make_cut_sequence(){
 
 void setup() {
     M5.begin();
+    M5.Lcd.setRotation(1);
     // Initialize serial communication for debugging.
     Serial.begin(115200, SERIAL_8N1);
     while (!Serial) {
@@ -536,6 +540,69 @@ void test_moves(){
 }
 
 
+void updateDisplay() {
+    M5.Lcd.fillScreen(TFT_BLACK);
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setTextColor(TFT_WHITE);
+    M5.Lcd.setCursor(40, 10);
+    M5.Lcd.println("Wire Cutting Machine");
+
+    M5.Lcd.setCursor(20, 50);
+    M5.Lcd.println("Wire Length (mm): ");
+    M5.Lcd.setCursor(220, 50);
+    M5.Lcd.printf("%d", requested_length_mm);
+
+    M5.Lcd.setCursor(20, 90);
+    M5.Lcd.println("Number of Wires: ");
+    M5.Lcd.setCursor(220, 90);
+    M5.Lcd.printf("%d", requested_wires_count);
+
+    // Wire Length Buttons
+    M5.Lcd.fillRoundRect(30, 130, 60, 40, 10, TFT_BLUE);
+    M5.Lcd.drawCentreString("+L", 60, 140, 2);
+
+    M5.Lcd.fillRoundRect(110, 130, 60, 40, 10, TFT_RED);
+    M5.Lcd.drawCentreString("-L", 140, 140, 2);
+
+    // Wire Count Buttons
+    M5.Lcd.fillRoundRect(190, 130, 60, 40, 10, TFT_BLUE);
+    M5.Lcd.drawCentreString("+N", 220, 140, 2);
+
+    M5.Lcd.fillRoundRect(270, 130, 60, 40, 10, TFT_RED);
+    M5.Lcd.drawCentreString("-N", 300, 140, 2);
+
+    // Start Button
+    M5.Lcd.fillRoundRect(80, 190, 160, 40, 10, TFT_GREEN);
+    M5.Lcd.drawCentreString("Start Cutting", 160, 190, 2);
+}
+
+void handleTouch(int x, int y) {
+    if (!buttonPressed) {
+        if (y > 130 && y < 170) {
+            if (x > 30 && x < 90) requested_length_mm += 5;
+            if (x > 110 && x < 170) requested_length_mm = (requested_length_mm > 5) ? requested_length_mm - 5 : 0;
+            if (x > 190 && x < 250) requested_wires_count += 1;
+            if (x > 270 && x < 330) requested_wires_count = (requested_wires_count > 0) ? requested_wires_count - 1 : 0;
+        }
+        if (y > 190 && y < 230 && x > 80 && x < 240) {
+            M5.Lcd.fillScreen(TFT_BLACK);
+            M5.Lcd.setCursor(50, 100);
+            M5.Lcd.setTextSize(2);
+            M5.Lcd.setTextColor(TFT_YELLOW);
+            while (requested_wires_count > 0) {
+                M5.Lcd.println("Cutting...");
+                requested_wires_count--;
+                delay(1000);
+                updateDisplay();
+            }
+            M5.Lcd.println("Cutting Complete");
+            delay(2000);
+        }
+        buttonPressed = true;
+    }
+    updateDisplay();
+}
+
 
 void loop(){
 
@@ -564,6 +631,14 @@ void loop(){
   else{
     reconnect();
   }
+
+    M5.update();
+    if (M5.Touch.getCount()) {
+        auto t = M5.Touch.getDetail();
+        handleTouch(t.x, t.y);
+    } else {
+        buttonPressed = false;
+    }
 
   delay(20);
 }
